@@ -1,0 +1,175 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  color: #ffffff;
+  background: #0f1220;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.admin-page {
+  background: #0f1220;
+}
+
+.admin-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.card {
+  background: #1a1f35;
+  border: 1px solid #2f3658;
+  border-radius: 16px;
+  padding: 20px;
+}
+
+h1, h2, h3 {
+  margin-top: 0;
+}
+
+input, button {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  border: none;
+  font-size: 14px;
+  margin-top: 8px;
+}
+
+input {
+  background: #0f1220;
+  color: #fff;
+  border: 1px solid #31395e;
+}
+
+button {
+  background: #7c5cff;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+button.danger {
+  background: #d64545;
+}
+
+.form-row {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.question-block {
+  background: #13182d;
+  border: 1px solid #2f3658;
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.quiz-item,
+.leaderboard-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: #13182d;
+  border: 1px solid #2f3658;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.quiz-actions,
+.controls-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.viewer-page {
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.viewer-card {
+  width: 100%;
+  max-width: 700px;
+  background: rgba(17, 20, 33, 0.95);
+  border: 1px solid rgba(70, 80, 130, 0.9);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+}
+
+.timer-bar {
+  width: 100%;
+  height: 16px;
+  background: #222845;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 14px 0 6px;
+}
+
+.timer-fill {
+  height: 100%;
+  background: #25d366;
+}
+
+.timer-text {
+  text-align: right;
+  margin-bottom: 16px;
+  font-weight: bold;
+}
+
+.question-text {
+  font-size: 24px;
+  font-weight: bold;
+  margin: 18px 0;
+}
+
+.answers-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.answer-btn {
+  min-height: 60px;
+  font-size: 16px;
+}
+
+.question-media {
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  border-radius: 12px;
+  margin: 12px 0;
+  background: #000;
+}
+
+.leaderboard-box {
+  margin-top: 20px;
+}
+
+@media (max-width: 768px) {
+  .answers-grid {
+    grid-template-columns: 1fr;
+  }
+}
