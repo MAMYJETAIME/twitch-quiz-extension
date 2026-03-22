@@ -358,8 +358,36 @@ app.post("/api/answer", (req, res) => {
     }
 
     if (answer === state.currentQuestion.correct) {
-      state.players[pseudo].score += Number(state.currentQuestion.reward || 0);
-    }
+  const now = Date.now();
+
+  const question = state.currentQuestion;
+
+  const totalTime = Number(question.timer || 30) * 1000;
+
+  let timeLeft = 0;
+
+  if (state.timerEnd) {
+    timeLeft = Math.max(0, state.timerEnd - now);
+  }
+
+  // ratio entre 0 et 1
+  let ratio = totalTime > 0 ? timeLeft / totalTime : 0;
+
+  // sécurité
+  ratio = Math.max(0, Math.min(1, ratio));
+
+  const baseReward = Number(question.reward || 0);
+
+  // calcul points
+  let earned = 0;
+
+  if (ratio > 0) {
+    earned = Math.max(1, Math.round(baseReward * ratio));
+  }
+
+  // ajout score
+  state.players[pseudo].score += earned;
+}
 
     saveState(state);
 
