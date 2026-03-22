@@ -1,357 +1,388 @@
-const express = require('express');
-const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
+const express = require("express");
+const fs = require("fs");
+const path = require("path");
+const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const DATA_DIR = path.join(__dirname, 'data');
-const QUIZZES_FILE = path.join(DATA_DIR, 'quizzes.json');
-const STATE_FILE = path.join(DATA_DIR, 'state.json');
-
 app.use(cors());
 app.use(express.json());
 
-function ensureFile(filePath, defaultValue) {
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(defaultValue, null, 2), 'utf8');
-  }
+const DATA_DIR = path.join(__dirname, "data");
+const QUIZ_FILE = path.join(DATA_DIR, "quizzes.json");
+const STATE_FILE = path.join(DATA_DIR, "state.json");
+
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-function readJson(filePath, fallback) {
-  try {
-    ensureFile(filePath, fallback);
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch (error) {
-    return fallback;
-  }
+if (!fs.existsSync(QUIZ_FILE)) {
+  fs.writeFileSync(QUIZ_FILE, "[]", "utf8");
 }
 
-function writeJson(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+if (!fs.existsSync(STATE_FILE)) {
+  fs.writeFileSync(
+    STATE_FILE,
+    JSON.stringify(
+      {
+        status: "idle",
+        quizName: "",
+        questions: [],
+        index: 0,
+        timerEnd: null,
+        pausedTimeLeft: 0,
+        acceptingAnswers: false,
+        players: {},
+        answeredPlayers: [],
+        currentQuestion: null
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
 }
 
-function getQuizzes() {
-  return readJson(QUIZZES_FILE, []);
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
-function saveQuizzes(quizzes) {
-  writeJson(QUIZZES_FILE, quizzes);
+function writeJson(file, data) {
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
 }
 
 function getState() {
-  return readJson(STATE_FILE, {
-    status: 'idle',
-    quizName: '',
-    index: 0,
-    timerEnd: null,
-    pausedTimeLeft: 0,
-    players: {},
-    selectedQuiz: null
-  });
+  return readJson(STATE_FILE);
 }
 
 function saveState(state) {
   writeJson(STATE_FILE, state);
 }
 
-function getSelectedQuiz() {
-  const quizzes = getQuizzes();
-  const state = getState();
-
-  if (!state.selectedQuiz) return null;
-  return quizzes.find(q => q.name === state.selectedQuiz) || null;
+function getQuizzes() {
+  return readJson(QUIZ_FILE);
 }
 
-function getCurrentQuestion() {
-  const quiz = getSelectedQuiz();
-  const state = getState();
-
-  if (!quiz) return null;
-  if (!quiz.questions || !quiz.questions[state.index]) return null;
-
-  return quiz.questions[state.index];
+function saveQuizzes(quizzes) {
+  writeJson(QUIZ_FILE, quizzes);
 }
 
-function sanitizeQuestion(question) {
-  if (!question) return null;
-
+function sanitizeQuiz(quiz) {
   return {
-    text: question.text || '',
-    answers: Array.isArray(question.answers) ? question.answers : [],
-    timer: Number(question.timer || 30),
-    reward: Number(question.reward || 0),
-    media: question.media || { type: '', url: '' }
+    name: String(quiz.name || "").trim(),
+    questions: Array.isArray(quiz.questions)
+      ? quiz.questions.map((q) => ({
+          text: String(q.text || "").trim(),
+          answers: Array.isArray(q.answers)
+            ? q.answers.map((a) => String(a || "").trim()).filter(Boolean)
+            : [],
+          correct: String(q.correct || "").trim(),
+          timer: Number(q.timer || 30),
+          reward: Number(q.reward || 0),
+          media: {
+            type: q.media && q.media.type ? String(q.media.type) : "image",
+            url: q.media && q.media.url ? String(q.media.url) : ""
+          }
+        }))
+      : []
   };
 }
 
-function buildPublicState() {
-  const state = getState();
-  const quiz = getSelectedQuiz();
-  const question = getCurrentQuestion();
+function startCurrentQuestion(state) {
+  const question = state.questions[state.index] || null;
 
-  const leaderboard = Object.entries(state.players || {})
-    .map(([pseudo, data]) => ({
-      pseudo,
-      score: data.score || 0
+  state.currentQuestion = question;
+  state.answeredPlayers = [];
+
+  if (question) {
+    state.acceptingAnswers = true;
+    state.timerEnd = Date.now() + Number(question.timer || 30) * 1000;
+    state.pausedTimeLeft = 0;
+  } else {
+    state.acceptingAnswers = false;
+    state.timerEnd = null;
+    state.pausedTimeLeft = 0;
+  }
+
+  return state;
+}
+
+function buildLeaderboard(state) {
+  return Object.keys(state.players || {})
+    .map((name) => ({
+      pseudo: name,
+      score: Number(state.players[name].score || 0)
     }))
     .sort((a, b) => b.score - a.score);
-
-  return {
-    status: state.status,
-    quizName: state.quizName,
-    index: state.index,
-    timerEnd: state.timerEnd,
-    pausedTimeLeft: state.pausedTimeLeft,
-    selectedQuiz: state.selectedQuiz,
-    currentQuestion: sanitizeQuestion(question),
-    leaderboard
-  };
 }
 
-ensureFile(QUIZZES_FILE, []);
-ensureFile(STATE_FILE, {
-  status: 'idle',
-  quizName: '',
-  index: 0,
-  timerEnd: null,
-  pausedTimeLeft: 0,
-  players: {},
-  selectedQuiz: null
-});
-
-app.get('/api/getQuizzes', (req, res) => {
-  const quizzes = getQuizzes();
-  res.json(quizzes);
-});
-
-app.post('/api/saveQuiz', (req, res) => {
-  const incomingQuiz = req.body;
-
-  if (!incomingQuiz || !incomingQuiz.name || !Array.isArray(incomingQuiz.questions)) {
-    return res.status(400).json({ error: 'Quiz invalide' });
-  }
-
-  const quizzes = getQuizzes();
-  const index = quizzes.findIndex(q => q.name === incomingQuiz.name);
-
-  if (index >= 0) {
-    quizzes[index] = incomingQuiz;
-  } else {
-    quizzes.push(incomingQuiz);
-  }
-
-  saveQuizzes(quizzes);
-  res.json({ success: true, quizzes });
-});
-
-app.post('/api/deleteQuiz', (req, res) => {
-  const { name } = req.body;
-
-  if (!name) {
-    return res.status(400).json({ error: 'Nom du quiz requis' });
-  }
-
-  let quizzes = getQuizzes();
-  quizzes = quizzes.filter(q => q.name !== name);
-  saveQuizzes(quizzes);
-
+function updateTimerIfNeeded() {
   const state = getState();
-  if (state.selectedQuiz === name) {
-    state.selectedQuiz = null;
-    state.quizName = '';
-    state.status = 'idle';
-    state.index = 0;
+
+  if (
+    state.status === "playing" &&
+    state.acceptingAnswers &&
+    state.timerEnd &&
+    Date.now() >= state.timerEnd
+  ) {
+    state.acceptingAnswers = false;
     state.timerEnd = null;
     state.pausedTimeLeft = 0;
-    state.players = {};
+
+    // IMPORTANT :
+    // On reste sur la question.
+    // On ne passe PAS à paused.
+    // On ne passe PAS à la question suivante.
     saveState(state);
   }
+}
 
-  res.json({ success: true, quizzes });
+setInterval(updateTimerIfNeeded, 500);
+
+app.get("/api/getQuizzes", (req, res) => {
+  res.json(getQuizzes());
 });
 
-app.post('/api/selectQuiz', (req, res) => {
-  const { name } = req.body;
-  const quizzes = getQuizzes();
-  const quiz = quizzes.find(q => q.name === name);
+app.post("/api/saveQuiz", (req, res) => {
+  try {
+    const incomingQuiz = sanitizeQuiz(req.body);
 
-  if (!quiz) {
-    return res.status(404).json({ error: 'Quiz introuvable' });
+    if (!incomingQuiz.name) {
+      return res.status(400).json({ error: "Quiz name required" });
+    }
+
+    const quizzes = getQuizzes();
+    const filtered = quizzes.filter((q) => q.name !== incomingQuiz.name);
+    filtered.push(incomingQuiz);
+    saveQuizzes(filtered);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "saveQuiz failed" });
   }
-
-  const state = getState();
-  state.selectedQuiz = name;
-  state.quizName = name;
-  state.index = 0;
-  state.status = 'idle';
-  state.timerEnd = null;
-  state.pausedTimeLeft = 0;
-  state.players = {};
-  saveState(state);
-
-  res.json({ success: true, state });
 });
 
-app.post('/api/start', (req, res) => {
-  const state = getState();
-  const quiz = getSelectedQuiz();
-
-  if (!quiz) {
-    return res.status(400).json({ error: 'Aucun quiz sélectionné' });
+app.post("/api/deleteQuiz", (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim();
+    const quizzes = getQuizzes().filter((q) => q.name !== name);
+    saveQuizzes(quizzes);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "deleteQuiz failed" });
   }
-
-  if (!quiz.questions.length) {
-    return res.status(400).json({ error: 'Le quiz ne contient aucune question' });
-  }
-
-  const question = quiz.questions[state.index];
-  state.status = 'playing';
-  state.timerEnd = Date.now() + (Number(question.timer || 30) * 1000);
-  state.pausedTimeLeft = 0;
-  saveState(state);
-
-  res.json({ success: true, state });
 });
 
-app.post('/api/next', (req, res) => {
-  const state = getState();
-  const quiz = getSelectedQuiz();
+app.post("/api/selectQuiz", (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim();
+    const quizzes = getQuizzes();
+    const quiz = quizzes.find((q) => q.name === name);
 
-  if (!quiz) {
-    return res.status(400).json({ error: 'Aucun quiz sélectionné' });
-  }
+    if (!quiz) {
+      return res.status(404).json({ error: "Quiz not found" });
+    }
 
-  state.index += 1;
-
-  if (state.index >= quiz.questions.length) {
-    state.status = 'ended';
-    state.timerEnd = null;
-    state.pausedTimeLeft = 0;
-    saveState(state);
-    return res.json({ success: true, state, ended: true });
-  }
-
-  const question = quiz.questions[state.index];
-  state.status = 'playing';
-  state.timerEnd = Date.now() + (Number(question.timer || 30) * 1000);
-  state.pausedTimeLeft = 0;
-  saveState(state);
-
-  res.json({ success: true, state });
-});
-
-app.post('/api/pause', (req, res) => {
-  const state = getState();
-
-  if (state.status !== 'playing') {
-    return res.status(400).json({ error: 'Le quiz n’est pas en cours' });
-  }
-
-  state.pausedTimeLeft = Math.max(0, state.timerEnd - Date.now());
-  state.timerEnd = null;
-  state.status = 'paused';
-  saveState(state);
-
-  res.json({ success: true, state });
-});
-
-app.post('/api/resume', (req, res) => {
-  const state = getState();
-
-  if (state.status !== 'paused') {
-    return res.status(400).json({ error: 'Le quiz n’est pas en pause' });
-  }
-
-  state.timerEnd = Date.now() + (state.pausedTimeLeft || 0);
-  state.pausedTimeLeft = 0;
-  state.status = 'playing';
-  saveState(state);
-
-  res.json({ success: true, state });
-});
-
-app.post('/api/end', (req, res) => {
-  const state = getState();
-  state.status = 'ended';
-  state.timerEnd = null;
-  state.pausedTimeLeft = 0;
-  saveState(state);
-
-  res.json({ success: true, state });
-});
-
-app.post('/api/answer', (req, res) => {
-  const { pseudo, answer } = req.body;
-  const state = getState();
-  const quiz = getSelectedQuiz();
-
-  if (!pseudo || !answer) {
-    return res.status(400).json({ error: 'Pseudo et réponse requis' });
-  }
-
-  if (!quiz) {
-    return res.status(400).json({ error: 'Aucun quiz actif' });
-  }
-
-  if (state.status !== 'playing') {
-    return res.status(400).json({ error: 'Le quiz n’est pas en cours' });
-  }
-
-  const question = quiz.questions[state.index];
-  if (!question) {
-    return res.status(400).json({ error: 'Question introuvable' });
-  }
-
-  if (!state.players[pseudo]) {
-    state.players[pseudo] = {
-      score: 0,
-      answeredQuestions: []
+    const state = {
+      status: "idle",
+      quizName: quiz.name,
+      questions: quiz.questions || [],
+      index: 0,
+      timerEnd: null,
+      pausedTimeLeft: 0,
+      acceptingAnswers: false,
+      players: {},
+      answeredPlayers: [],
+      currentQuestion: null
     };
+
+    saveState(state);
+    res.json({ ok: true, state });
+  } catch (e) {
+    res.status(500).json({ error: "selectQuiz failed" });
   }
-
-  const player = state.players[pseudo];
-
-  if (player.answeredQuestions.includes(state.index)) {
-    return res.status(400).json({ error: 'Déjà répondu à cette question' });
-  }
-
-  player.answeredQuestions.push(state.index);
-
-  if (answer === question.correct) {
-    player.score += Number(question.reward || 0);
-  }
-
-  saveState(state);
-
-  res.json({
-    success: true,
-    correct: answer === question.correct,
-    score: player.score
-  });
 });
 
-app.get('/api/state', (req, res) => {
-  const state = getState();
-  const publicState = buildPublicState();
+app.post("/api/start", (req, res) => {
+  try {
+    const state = getState();
 
-  if (state.status === 'playing' && state.timerEnd && Date.now() >= state.timerEnd) {
-    state.status = 'paused';
-    state.pausedTimeLeft = 0;
+    if (!Array.isArray(state.questions) || !state.questions.length) {
+      return res.status(400).json({ error: "No questions in selected quiz" });
+    }
+
+    state.status = "playing";
+    state.index = 0;
+    state.players = state.players || {};
+    startCurrentQuestion(state);
+
+    saveState(state);
+    res.json({ ok: true, state });
+  } catch (e) {
+    res.status(500).json({ error: "start failed" });
+  }
+});
+
+app.post("/api/next", (req, res) => {
+  try {
+    const state = getState();
+
+    if (!Array.isArray(state.questions) || !state.questions.length) {
+      return res.status(400).json({ error: "No questions in selected quiz" });
+    }
+
+    state.index += 1;
+
+    if (state.index >= state.questions.length) {
+      state.status = "ended";
+      state.currentQuestion = null;
+      state.timerEnd = null;
+      state.pausedTimeLeft = 0;
+      state.acceptingAnswers = false;
+      state.answeredPlayers = [];
+      saveState(state);
+      return res.json({ ok: true, state });
+    }
+
+    state.status = "playing";
+    startCurrentQuestion(state);
+
+    saveState(state);
+    res.json({ ok: true, state });
+  } catch (e) {
+    res.status(500).json({ error: "next failed" });
+  }
+});
+
+app.post("/api/pause", (req, res) => {
+  try {
+    const state = getState();
+
+    if (state.status !== "playing") {
+      return res.json({ ok: true, state });
+    }
+
+    if (state.acceptingAnswers && state.timerEnd) {
+      state.pausedTimeLeft = Math.max(0, state.timerEnd - Date.now());
+    } else {
+      state.pausedTimeLeft = 0;
+    }
+
+    state.status = "paused";
     state.timerEnd = null;
+    state.acceptingAnswers = false;
+
+    saveState(state);
+    res.json({ ok: true, state });
+  } catch (e) {
+    res.status(500).json({ error: "pause failed" });
+  }
+});
+
+app.post("/api/resume", (req, res) => {
+  try {
+    const state = getState();
+
+    if (state.status !== "paused") {
+      return res.json({ ok: true, state });
+    }
+
+    state.status = "playing";
+
+    if (state.currentQuestion && Number(state.pausedTimeLeft || 0) > 0) {
+      state.timerEnd = Date.now() + Number(state.pausedTimeLeft || 0);
+      state.acceptingAnswers = true;
+    } else {
+      state.timerEnd = null;
+      state.acceptingAnswers = false;
+    }
+
+    saveState(state);
+    res.json({ ok: true, state });
+  } catch (e) {
+    res.status(500).json({ error: "resume failed" });
+  }
+});
+
+app.post("/api/end", (req, res) => {
+  try {
+    const state = getState();
+    state.status = "ended";
+    state.currentQuestion = null;
+    state.timerEnd = null;
+    state.pausedTimeLeft = 0;
+    state.acceptingAnswers = false;
+    state.answeredPlayers = [];
+    saveState(state);
+    res.json({ ok: true, state });
+  } catch (e) {
+    res.status(500).json({ error: "end failed" });
+  }
+});
+
+app.post("/api/answer", (req, res) => {
+  try {
+    const state = getState();
+    const pseudo = String(req.body.pseudo || "").trim();
+    const answer = String(req.body.answer || "").trim();
+
+    if (!pseudo || !answer) {
+      return res.status(400).json({ error: "Invalid payload" });
+    }
+
+    if (state.status !== "playing") {
+      return res.json({ ok: false, error: "Quiz not playing" });
+    }
+
+    if (!state.acceptingAnswers) {
+      return res.json({ ok: false, error: "Time over" });
+    }
+
+    if (!state.currentQuestion) {
+      return res.json({ ok: false, error: "No active question" });
+    }
+
+    if (!Array.isArray(state.answeredPlayers)) {
+      state.answeredPlayers = [];
+    }
+
+    if (state.answeredPlayers.includes(pseudo)) {
+      return res.json({ ok: false, error: "Already answered" });
+    }
+
+    state.answeredPlayers.push(pseudo);
+
+    if (!state.players[pseudo]) {
+      state.players[pseudo] = { score: 0 };
+    }
+
+    if (answer === state.currentQuestion.correct) {
+      state.players[pseudo].score += Number(state.currentQuestion.reward || 0);
+    }
+
     saveState(state);
 
-    return res.json(buildPublicState());
+    // IMPORTANT :
+    // on ne renvoie PAS si c'est vrai ou faux
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "answer failed" });
   }
-
-  res.json(publicState);
 });
 
-app.get('/', (req, res) => {
-  res.send('Twitch Quiz Backend OK');
+app.get("/api/state", (req, res) => {
+  try {
+    const state = getState();
+    res.json({
+      ...state,
+      leaderboard: buildLeaderboard(state)
+    });
+  } catch (e) {
+    res.status(500).json({ error: "state failed" });
+  }
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log("Server running on port " + PORT);
 });
